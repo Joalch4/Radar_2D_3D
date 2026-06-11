@@ -1,1 +1,82 @@
+#include <Servo.h>
 
+#define TRIG_PIN 9
+#define ECHO_PIN 10
+#define SERVO_PIN 6
+#define LED_PIN 13
+
+Servo radarServo;
+
+int angle = 0;
+int stepValue = 2;
+unsigned long lastLedTime = 0;
+bool ledState = false;
+
+float readDistanceCM() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+
+  if (duration == 0) {
+    return -1;
+  }
+
+  float distance = duration * 0.0343 / 2.0;
+
+  if (distance < 2 || distance > 200) {
+    return -1;
+  }
+
+  return distance;
+}
+
+void blinkLed() {
+  if (millis() - lastLedTime >= 300) {
+    lastLedTime = millis();
+    ledState = !ledState;
+    digitalWrite(LED_PIN, ledState);
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+
+  radarServo.attach(SERVO_PIN);
+  radarServo.write(0);
+
+  delay(1000);
+}
+
+void loop() {
+  blinkLed();
+
+  radarServo.write(angle);
+  delay(35);
+
+  float distance = readDistanceCM();
+
+  Serial.print(angle);
+  Serial.print(",");
+  Serial.println(distance);
+
+  angle += stepValue;
+
+  if (angle >= 180) {
+    angle = 180;
+    stepValue = -2;
+  }
+
+  if (angle <= 0) {
+    angle = 0;
+    stepValue = 2;
+  }
+}
