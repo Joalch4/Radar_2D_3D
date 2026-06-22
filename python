@@ -1,20 +1,29 @@
-import pygame
-import serial
-import math
-import time
-from collections import deque
+# Librerías utilizadas
+import pygame          # Interfaz gráfica y renderizado del radar
+import serial          # Comunicación serial con Arduino
+import math            # Funciones matemáticas (senos, cosenos, radianes)
+import time            # Manejo de tiempo para velocidad y animaciones
+from collections import deque   # Cola para almacenar el historial de detecciones
 
-SERIAL_PORT = "COM3"      # Cambiar según tu puerto
-BAUD_RATE = 9600
+# Configuración del puerto serial
+SERIAL_PORT = "COM3"      # Cambiar según el puerto utilizado por Arduino
+BAUD_RATE = 9600          # Debe coincidir con Serial.begin() en Arduino
 
+# Distancia máxima que puede mostrar el radar
 MAX_DISTANCE_CM = 200
+
+# Dimensiones de la ventana gráfica
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 700
 
+# Centro del radar en pantalla
 CENTER_X = WINDOW_WIDTH // 2
 CENTER_Y = WINDOW_HEIGHT - 80
+
+# Radio visual del radar
 RADAR_RADIUS = 550
 
+# Definición de colores RGB
 GREEN = (0, 255, 0)
 DARK_GREEN = (0, 60, 0)
 BLACK = (0, 0, 0)
@@ -23,53 +32,91 @@ YELLOW = (255, 255, 0)
 WHITE = (255, 255, 255)
 
 
+# ==========================================================
+# Clase que representa un objeto detectado por el radar
+# ==========================================================
 class RadarObject:
+
+    # Constructor
     def __init__(self, angle, distance):
+
+        # Posición polar actual
         self.angle = angle
         self.distance = distance
+
+        # Posición anterior utilizada para calcular velocidad
         self.last_distance = distance
+
+        # Tiempos de actualización
         self.last_time = time.time()
         self.current_time = time.time()
+
+        # Velocidad estimada
         self.speed = 0
+
+        # Coordenadas cartesianas actuales
         self.x = 0
         self.y = 0
+
+        # Posición futura estimada
         self.future_x = 0
         self.future_y = 0
+
+        # Calcula posición inicial
         self.update_position()
 
+    # Actualiza datos del objeto
     def update(self, angle, distance):
+
+        # Guarda datos anteriores
         self.last_distance = self.distance
         self.last_time = self.current_time
 
+        # Actualiza valores actuales
         self.angle = angle
         self.distance = distance
         self.current_time = time.time()
 
+        # Diferencias utilizadas para calcular velocidad
         delta_d = self.distance - self.last_distance
         delta_t = self.current_time - self.last_time
 
+        # Fórmula de velocidad
         if delta_t > 0:
             self.speed = delta_d / delta_t
 
+        # Recalcula posición
         self.update_position()
 
+    # Convierte coordenadas polares a cartesianas
     def update_position(self):
+
         theta = math.radians(self.angle)
 
+        # Posición actual
         self.x = self.distance * math.cos(theta)
         self.y = self.distance * math.sin(theta)
 
+        # Predicción sencilla de posición futura
         future_distance = self.distance + self.speed * 1.0
 
+        # Evita valores negativos
         if future_distance < 0:
             future_distance = 0
 
+        # Posición futura estimada
         self.future_x = future_distance * math.cos(theta)
         self.future_y = future_distance * math.sin(theta)
 
 
+# ==========================================================
+# Conversión de coordenadas polares a coordenadas de pantalla
+# ==========================================================
 def polar_to_screen(angle, distance):
+
     theta = math.radians(angle)
+
+    # Escala distancia física al tamaño visual del radar
     scaled_distance = (distance / MAX_DISTANCE_CM) * RADAR_RADIUS
 
     x = CENTER_X + scaled_distance * math.cos(theta)
@@ -78,10 +125,17 @@ def polar_to_screen(angle, distance):
     return int(x), int(y)
 
 
+# ==========================================================
+# Dibuja la cuadrícula del radar
+# ==========================================================
 def draw_radar_grid(screen, font):
+
+    # Fondo negro
     screen.fill(BLACK)
 
+    # Arcos concéntricos del radar
     for r in range(100, RADAR_RADIUS + 1, 100):
+
         pygame.draw.arc(
             screen,
             DARK_GREEN,
@@ -91,55 +145,134 @@ def draw_radar_grid(screen, font):
             1
         )
 
+    # Líneas radiales cada 30°
     for angle in range(0, 181, 30):
+
         theta = math.radians(angle)
+
         x = CENTER_X + RADAR_RADIUS * math.cos(theta)
         y = CENTER_Y - RADAR_RADIUS * math.sin(theta)
-        pygame.draw.line(screen, DARK_GREEN, (CENTER_X, CENTER_Y), (x, y), 1)
 
+        pygame.draw.line(
+            screen,
+            DARK_GREEN,
+            (CENTER_X, CENTER_Y),
+            (x, y),
+            1
+        )
+
+        # Etiquetas angulares
         label = font.render(str(angle) + "°", True, GREEN)
         screen.blit(label, (x - 15, y - 20))
 
-    pygame.draw.line(screen, GREEN, (CENTER_X - RADAR_RADIUS, CENTER_Y), (CENTER_X + RADAR_RADIUS, CENTER_Y), 2)
-    pygame.draw.line(screen, GREEN, (CENTER_X, CENTER_Y), (CENTER_X, CENTER_Y - RADAR_RADIUS), 2)
+    # Ejes principales
+    pygame.draw.line(
+        screen,
+        GREEN,
+        (CENTER_X - RADAR_RADIUS, CENTER_Y),
+        (CENTER_X + RADAR_RADIUS, CENTER_Y),
+        2
+    )
 
-    title = font.render("RADAR 2D - Arduino + Python", True, GREEN)
+    pygame.draw.line(
+        screen,
+        GREEN,
+        (CENTER_X, CENTER_Y),
+        (CENTER_X, CENTER_Y - RADAR_RADIUS),
+        2
+    )
+
+    # Título del radar
+    title = font.render(
+        "RADAR 2D - Arduino + Python",
+        True,
+        GREEN
+    )
+
     screen.blit(title, (30, 20))
 
 
+# ==========================================================
+# Dibuja la línea de barrido del radar
+# ==========================================================
 def draw_sweep_line(screen, angle):
+
     theta = math.radians(angle)
+
     x = CENTER_X + RADAR_RADIUS * math.cos(theta)
     y = CENTER_Y - RADAR_RADIUS * math.sin(theta)
-    pygame.draw.line(screen, GREEN, (CENTER_X, CENTER_Y), (x, y), 3)
+
+    pygame.draw.line(
+        screen,
+        GREEN,
+        (CENTER_X, CENTER_Y),
+        (x, y),
+        3
+    )
 
 
+# ==========================================================
+# Dibuja un objeto detectado
+# ==========================================================
 def draw_object(screen, font, obj):
+
+    # Ignora valores inválidos
     if obj.distance < 0 or obj.distance > MAX_DISTANCE_CM:
         return
 
+    # Posición actual
     x, y = polar_to_screen(obj.angle, obj.distance)
 
+    # Posición futura estimada
     future_distance = obj.distance + obj.speed * 1.0
-    future_x, future_y = polar_to_screen(obj.angle, max(0, future_distance))
 
+    future_x, future_y = polar_to_screen(
+        obj.angle,
+        max(0, future_distance)
+    )
+
+    # Objeto actual (rojo)
     pygame.draw.circle(screen, RED, (x, y), 7)
+
+    # Posición futura (amarillo)
     pygame.draw.circle(screen, YELLOW, (future_x, future_y), 5)
 
-    pygame.draw.line(screen, YELLOW, (x, y), (future_x, future_y), 1)
+    # Línea de predicción
+    pygame.draw.line(
+        screen,
+        YELLOW,
+        (x, y),
+        (future_x, future_y),
+        1
+    )
 
+    # Texto informativo
     info = f"{obj.distance:.1f} cm | {obj.speed:.1f} cm/s"
-    text = font.render(info, True, WHITE)
+
+    text = font.render(
+        info,
+        True,
+        WHITE
+    )
+
     screen.blit(text, (x + 10, y - 10))
 
 
+# ==========================================================
+# Lectura de datos provenientes del Arduino
+# ==========================================================
 def read_serial_data(ser):
+
     try:
+
+        # Lee una línea completa
         line = ser.readline().decode("utf-8").strip()
 
         if not line:
             return None
 
+        # Formato esperado:
+        # angulo,distancia
         parts = line.split(",")
 
         if len(parts) != 2:
@@ -154,77 +287,161 @@ def read_serial_data(ser):
         return None
 
 
+# ==========================================================
+# Programa principal
+# ==========================================================
 def main():
+
+    # Inicializa Pygame
     pygame.init()
 
-    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    # Crea la ventana
+    screen = pygame.display.set_mode(
+        (WINDOW_WIDTH, WINDOW_HEIGHT)
+    )
+
     pygame.display.set_caption("Radar 2D")
 
+    # Fuente de texto
     font = pygame.font.SysFont("Arial", 18)
+
+    # Control de FPS
     clock = pygame.time.Clock()
 
+    # Objetos detectados
     objects = {}
+
+    # Historial visual de detecciones
     trail = deque(maxlen=80)
 
+    # Intenta conectar con Arduino
     try:
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
+
+        ser = serial.Serial(
+            SERIAL_PORT,
+            BAUD_RATE,
+            timeout=0.05
+        )
+
         time.sleep(2)
+
         serial_connected = True
+
     except:
+
         ser = None
         serial_connected = False
-        print("No se pudo conectar al puerto serial. Revisá SERIAL_PORT.")
+
+        print(
+            "No se pudo conectar al puerto serial."
+        )
 
     running = True
     current_angle = 0
 
+    # Bucle principal
     while running:
+
+        # Manejo de eventos
         for event in pygame.event.get():
+
             if event.type == pygame.QUIT:
                 running = False
 
+        # Lectura serial
         if serial_connected:
+
             data = read_serial_data(ser)
 
             if data:
+
                 angle, distance = data
                 current_angle = angle
 
                 if distance > 0:
+
+                    # Agrupa detecciones similares
                     key = round(angle / 10) * 10
 
                     if key not in objects:
-                        objects[key] = RadarObject(angle, distance)
+
+                        objects[key] = RadarObject(
+                            angle,
+                            distance
+                        )
+
                     else:
-                        objects[key].update(angle, distance)
 
-                    trail.append((angle, distance, time.time()))
+                        objects[key].update(
+                            angle,
+                            distance
+                        )
 
+                    # Guarda rastro visual
+                    trail.append(
+                        (
+                            angle,
+                            distance,
+                            time.time()
+                        )
+                    )
+
+        # Dibuja elementos
         draw_radar_grid(screen, font)
         draw_sweep_line(screen, current_angle)
 
         now = time.time()
 
+        # Dibuja historial de puntos
         for angle, distance, timestamp in trail:
-            if now - timestamp < 2:
-                x, y = polar_to_screen(angle, distance)
-                pygame.draw.circle(screen, GREEN, (x, y), 3)
 
+            if now - timestamp < 2:
+
+                x, y = polar_to_screen(
+                    angle,
+                    distance
+                )
+
+                pygame.draw.circle(
+                    screen,
+                    GREEN,
+                    (x, y),
+                    3
+                )
+
+        # Dibuja objetos actuales
         for obj in objects.values():
             draw_object(screen, font, obj)
 
-        status = "Serial conectado" if serial_connected else "Serial NO conectado"
-        status_text = font.render(status, True, WHITE)
+        # Estado de conexión
+        status = (
+            "Serial conectado"
+            if serial_connected
+            else "Serial NO conectado"
+        )
+
+        status_text = font.render(
+            status,
+            True,
+            WHITE
+        )
+
         screen.blit(status_text, (30, 50))
 
+        # Actualiza pantalla
         pygame.display.flip()
+
+        # Limita a 60 FPS
         clock.tick(60)
 
+    # Cierra puerto serial
     if ser:
         ser.close()
 
+    # Finaliza Pygame
     pygame.quit()
 
 
+# Punto de entrada del programa
 if __name__ == "__main__":
     main()
