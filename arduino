@@ -1,33 +1,55 @@
+// Librería para controlar el servomotor
 #include <Servo.h>
 
-#define TRIG_PIN 9
-#define ECHO_PIN 10
-#define SERVO_PIN 6
-#define LED_PIN 13
+// Definición de pines utilizados
+#define TRIG_PIN 9      // Pin Trigger del sensor ultrasónico HC-SR04
+#define ECHO_PIN 10     // Pin Echo del sensor ultrasónico HC-SR04
+#define SERVO_PIN 6     // Pin de control del servomotor
+#define LED_PIN 13      // LED de alerta del radar
 
+// Creación del objeto servo
 Servo radarServo;
 
-int angle = 0;
-int stepValue = 2;
+// Variables de control del barrido
+int angle = 0;          // Ángulo actual del servo
+int stepValue = 2;      // Incremento o decremento del ángulo en cada ciclo
+
+// Variables para controlar el parpadeo del LED
 unsigned long lastLedTime = 0;
 bool ledState = false;
 
+/*
+ * Función encargada de medir la distancia utilizando
+ * el sensor ultrasónico HC-SR04.
+ *
+ * Retorna:
+ * - Distancia en centímetros.
+ * - -1 si la medición es inválida.
+ */
 float readDistanceCM() {
+
+  // Garantiza que el Trigger inicie en bajo
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
 
+  // Genera un pulso de 10 microsegundos para activar el sensor
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
+  // Mide la duración del pulso de retorno del Echo
   long duration = pulseIn(ECHO_PIN, HIGH, 30000);
 
+  // Si no hubo respuesta dentro del tiempo límite
   if (duration == 0) {
     return -1;
   }
 
+  // Conversión del tiempo de vuelo a distancia
+  // Velocidad del sonido ≈ 0.0343 cm/µs
   float distance = duration * 0.0343 / 2.0;
 
+  // Descarta mediciones fuera del rango útil
   if (distance < 2 || distance > 200) {
     return -1;
   }
@@ -35,46 +57,95 @@ float readDistanceCM() {
   return distance;
 }
 
+/*
+ * Función encargada de hacer parpadear
+ * el LED de alerta cada 300 ms.
+ */
 void blinkLed() {
+
+  // Verifica si han transcurrido 300 ms
   if (millis() - lastLedTime >= 300) {
+
     lastLedTime = millis();
+
+    // Cambia el estado actual del LED
     ledState = !ledState;
+
     digitalWrite(LED_PIN, ledState);
   }
 }
 
+/*
+ * Función de inicialización.
+ * Se ejecuta una sola vez al encender el sistema.
+ */
 void setup() {
+
+  // Inicializa la comunicación serial
   Serial.begin(9600);
 
+  // Configuración de pines
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
 
+  // Asocia el servomotor al pin correspondiente
   radarServo.attach(SERVO_PIN);
+
+  // Posiciona inicialmente el servo en 0°
   radarServo.write(0);
 
+  // Pequeña pausa para estabilizar el sistema
   delay(1000);
 }
 
+/*
+ * Bucle principal del programa.
+ * Se ejecuta continuamente mientras el Arduino esté encendido.
+ */
 void loop() {
+
+  // Actualiza el estado del LED de alerta
   blinkLed();
 
+  // Mueve el servomotor al ángulo actual
   radarServo.write(angle);
+
+  // Tiempo para que el servo alcance la posición
   delay(35);
 
+  // Obtiene la distancia medida por el sensor
   float distance = readDistanceCM();
 
+  /*
+   * Envía los datos al puerto serial
+   * con el formato:
+   *
+   * angulo,distancia
+   *
+   * Ejemplo:
+   * 90,35.2
+   */
   Serial.print(angle);
   Serial.print(",");
   Serial.println(distance);
 
+  // Actualiza el ángulo para continuar el barrido
   angle += stepValue;
 
+  /*
+   * Cuando llega a 180°,
+   * invierte el sentido del barrido.
+   */
   if (angle >= 180) {
     angle = 180;
     stepValue = -2;
   }
 
+  /*
+   * Cuando llega a 0°,
+   * vuelve a invertir el sentido.
+   */
   if (angle <= 0) {
     angle = 0;
     stepValue = 2;
